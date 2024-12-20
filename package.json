@@ -1,0 +1,16 @@
+{
+  "name": "sekoia_tg_bot",
+  "version": "1.0.0",
+  "description": "The official telegram bot of sekoia.vc",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "googleapis": "^144.0.0",
+    "telegraf": "^4.16.3"
+  }
+}
