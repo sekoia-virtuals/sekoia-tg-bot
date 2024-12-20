@@ -266,7 +266,7 @@ wizardScene.action('skip', async (ctx) => {
 });
 
 wizardScene.action('abort', (ctx) => {
-    ctx.reply('Application aborted. You can re-start by sending /start');
+    ctx.reply('You aborted the submission. You can always re-start the flow by sending /start');
     return ctx.scene.leave();
 });
 
@@ -305,7 +305,7 @@ bot.command('start', (ctx) => {
 
 // Handle any text message
 bot.on('text', (ctx) => {
-    ctx.reply('Send /start to get started', Markup.inlineKeyboard([
+    ctx.reply('Send /start to or click the Start button to get started', Markup.inlineKeyboard([
         Markup.button.callback('Start', 'start')
     ]));
 });
