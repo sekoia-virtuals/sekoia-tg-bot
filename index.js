@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { google } = require('googleapis');
 const fetch = require('node-fetch');
+const {Web3} = require('web3');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
@@ -48,6 +49,22 @@ const auth = new google.auth.GoogleAuth({
     scopes: ['https://www.googleapis.com/auth/drive.file']
 });
 const drive = google.drive({ version: 'v3', auth });
+
+const web3 = new Web3(new Web3.providers.HttpProvider(process.env.BASE_CHAIN_RPC_URL));
+const sekoiaTokenContractAddress = '0x1185cB5122Edad199BdBC0cbd7a0457E448f23c7';
+const sekoiaTokenDecimals = 18;
+
+const sekoiaTokenABI = [
+    {
+        "constant": true,
+        "inputs": [{"name": "_owner", "type": "address"}],
+        "name": "balanceOf",
+        "outputs": [{"name": "balance", "type": "uint256"}],
+        "type": "function"
+    }
+];
+
+const sekoiaTokenContract = new web3.eth.Contract(sekoiaTokenABI, sekoiaTokenContractAddress);
 
 // Define the wizard scene
 const wizardScene = new Scenes.WizardScene(
@@ -110,7 +127,7 @@ const wizardScene = new Scenes.WizardScene(
             ctx.reply('Please upload a PDF file.');
         }
     },
-    (ctx) => {
+    async (ctx) => {
         if (ctx.message.text) {
             ctx.wizard.state.answers.push(ctx.message.text);
         } else {
@@ -123,19 +140,31 @@ const wizardScene = new Scenes.WizardScene(
         ]));
         return ctx.wizard.next();
     },
-    (ctx) => {
+    async (ctx) => {
         if (ctx.message.text) {
-            ctx.wizard.state.answers.push(ctx.message.text);
+            const walletAddress = ctx.message.text;
+            try {
+                const balance = await sekoiaTokenContract.methods.balanceOf(walletAddress).call();
+                const balanceInTokens = web3.utils.fromWei(balance, 'ether');
+                if (parseFloat(balanceInTokens) >= 10) {
+                    ctx.wizard.state.answers.push(walletAddress);
+                    ctx.reply(questions[4], Markup.inlineKeyboard([
+                        Markup.button.callback('Back', 'back'),
+                        Markup.button.callback('Skip', 'skip'),
+                        Markup.button.callback('Abort', 'abort')
+                    ]));
+                    return ctx.wizard.next();
+                } else {
+                    ctx.reply(`Insufficient Sekoia balance, minimum 10 required, current balance ${balanceInTokens}. Please try with another wallet.`);
+                }
+            } catch (error) {
+                ctx.reply('Error checking balance. Please try again.');
+            }
         } else {
-            ctx.wizard.state.answers.push('Not provided');
+            ctx.reply('Please provide a valid wallet address.');
         }
-        ctx.reply(questions[3], Markup.inlineKeyboard([
-            Markup.button.callback('Back', 'back'),
-            Markup.button.callback('Abort', 'abort')
-        ]));
-        return ctx.wizard.next();
     },
-    (ctx) => {
+    async (ctx) => {
         if (ctx.message.text) {
             ctx.wizard.state.answers.push(ctx.message.text);
         } else {
