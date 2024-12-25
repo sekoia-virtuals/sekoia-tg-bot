@@ -148,7 +148,6 @@ const wizardScene = new Scenes.WizardScene(
         }
         ctx.reply(questions[3], Markup.inlineKeyboard([
             Markup.button.callback('Back', 'back'),
-            Markup.button.callback('Skip', 'skip'),
             Markup.button.callback('Abort', 'abort')
         ]));
         return ctx.wizard.next();
@@ -160,7 +159,7 @@ const wizardScene = new Scenes.WizardScene(
                 // check if address is valid
                 if (!web3.utils.isAddress(walletAddress)) {
                     ctx.reply('Please provide a valid wallet address.');
-                    return
+                    return;
                 }
                 const balance = await sekoiaTokenContract.methods.balanceOf(walletAddress).call();
                 const balanceInTokens = web3.utils.fromWei(balance, 'ether');
