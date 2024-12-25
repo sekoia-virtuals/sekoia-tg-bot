@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { google } = require('googleapis');
 const fetch = require('node-fetch');
-const {Web3} = require('web3');
+const { Web3 } = require('web3');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
@@ -131,7 +131,7 @@ const wizardScene = new Scenes.WizardScene(
         if (ctx.message.text) {
             ctx.wizard.state.answers.push(ctx.message.text);
         } else {
-            ctx.wizard.state.answers.push('Not provided');
+            ctx.wizard.state.answers.push('None');
         }
         ctx.reply(questions[2], Markup.inlineKeyboard([
             Markup.button.callback('Back', 'back'),
@@ -142,8 +142,26 @@ const wizardScene = new Scenes.WizardScene(
     },
     async (ctx) => {
         if (ctx.message.text) {
+            ctx.wizard.state.answers.push(ctx.message.text);
+        } else {
+            ctx.wizard.state.answers.push('None');
+        }
+        ctx.reply(questions[3], Markup.inlineKeyboard([
+            Markup.button.callback('Back', 'back'),
+            Markup.button.callback('Skip', 'skip'),
+            Markup.button.callback('Abort', 'abort')
+        ]));
+        return ctx.wizard.next();
+    },
+    async (ctx) => {
+        if (ctx.message.text) {
             const walletAddress = ctx.message.text;
             try {
+                // check if address is valid
+                if (!web3.utils.isAddress(walletAddress)) {
+                    ctx.reply('Please provide a valid wallet address.');
+                    return
+                }
                 const balance = await sekoiaTokenContract.methods.balanceOf(walletAddress).call();
                 const balanceInTokens = web3.utils.fromWei(balance, 'ether');
                 if (parseFloat(balanceInTokens) >= 10) {
@@ -163,19 +181,6 @@ const wizardScene = new Scenes.WizardScene(
         } else {
             ctx.reply('Please provide a valid wallet address.');
         }
-    },
-    async (ctx) => {
-        if (ctx.message.text) {
-            ctx.wizard.state.answers.push(ctx.message.text);
-        } else {
-            ctx.wizard.state.answers.push('None');
-        }
-        ctx.reply(questions[4], Markup.inlineKeyboard([
-            Markup.button.callback('Back', 'back'),
-            Markup.button.callback('Skip', 'skip'),
-            Markup.button.callback('Abort', 'abort')
-        ]));
-        return ctx.wizard.next();
     },
     async (ctx) => {
         if (ctx.message.document && ctx.message.document.file_name.endsWith('.pdf')) {
