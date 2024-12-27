@@ -4,15 +4,17 @@ const fs = require('fs');
 const path = require('path');
 const { google } = require('googleapis');
 const fetch = require('node-fetch');
+const { Web3 } = require('web3');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 const questions = [
-    "Hello and welcome to SEKOIA! We are here to assess if SEKOIA is a fit as an investor for your idea. Please pardon the dust as we are in alpha and early testing mode.\n\n[1/5] First, please provide a PDF of your deck ",
-    "[2/5] What is your LinkedIn profile? Please provide the full URL (e.g., https://www.linkedin.com/in/username)",
-    "[3/5] What is your GitHub profile? Please provide the full URL (e.g., https://github.com/username)",
-    "[4/5] We require that you are holding at least 10 SEKOIA in your wallet. Please share your wallet address where you are holding SEKOIA:",
-    "[5/5] Do you have any additional materials you would like to share? For ex, whitepaper, tokenomics etc.? (Upload PDF if you have additional materials)"
+    "Hello and welcome to SEKOIA! We are here to assess if SEKOIA is a fit as an investor for your idea. Please pardon the dust as we are in alpha and early testing mode.\n\n[1/6] First, please provide a PDF of your deck ",
+    "[2/6] What is your LinkedIn profile? Please provide the full URL (e.g., https://www.linkedin.com/in/username)",
+    "[3/6] What is your GitHub profile? Please provide the full URL (e.g., https://github.com/username)",
+    "[4/6] We require that you are holding at least 10 SEKOIA in your wallet. Please share your wallet address where you are holding SEKOIA:",
+    "[5/6] Verify you are the owner of the wallet address",
+    "[6/6] Do you have any additional materials you would like to share? For ex, whitepaper, tokenomics etc.? (Upload PDF if you have additional materials)"
 ];
 
 const dataFolderPath = path.join(__dirname, 'data');
@@ -48,6 +50,22 @@ const auth = new google.auth.GoogleAuth({
     scopes: ['https://www.googleapis.com/auth/drive.file']
 });
 const drive = google.drive({ version: 'v3', auth });
+
+const web3 = new Web3(new Web3.providers.HttpProvider(process.env.BASE_CHAIN_RPC_URL));
+const sekoiaTokenContractAddress = '0x1185cB5122Edad199BdBC0cbd7a0457E448f23c7';
+const sekoiaTokenDecimals = 18;
+
+const sekoiaTokenABI = [
+    {
+        "constant": true,
+        "inputs": [{"name": "_owner", "type": "address"}],
+        "name": "balanceOf",
+        "outputs": [{"name": "balance", "type": "uint256"}],
+        "type": "function"
+    }
+];
+
+const sekoiaTokenContract = new web3.eth.Contract(sekoiaTokenABI, sekoiaTokenContractAddress);
 
 // Define the wizard scene
 const wizardScene = new Scenes.WizardScene(
@@ -110,11 +128,11 @@ const wizardScene = new Scenes.WizardScene(
             ctx.reply('Please upload a PDF file.');
         }
     },
-    (ctx) => {
+    async (ctx) => {
         if (ctx.message.text) {
             ctx.wizard.state.answers.push(ctx.message.text);
         } else {
-            ctx.wizard.state.answers.push('Not provided');
+            ctx.wizard.state.answers.push('None');
         }
         ctx.reply(questions[2], Markup.inlineKeyboard([
             Markup.button.callback('Back', 'back'),
@@ -123,11 +141,11 @@ const wizardScene = new Scenes.WizardScene(
         ]));
         return ctx.wizard.next();
     },
-    (ctx) => {
+    async (ctx) => {
         if (ctx.message.text) {
             ctx.wizard.state.answers.push(ctx.message.text);
         } else {
-            ctx.wizard.state.answers.push('Not provided');
+            ctx.wizard.state.answers.push('None');
         }
         ctx.reply(questions[3], Markup.inlineKeyboard([
             Markup.button.callback('Back', 'back'),
@@ -135,18 +153,61 @@ const wizardScene = new Scenes.WizardScene(
         ]));
         return ctx.wizard.next();
     },
-    (ctx) => {
+    async (ctx) => {
         if (ctx.message.text) {
-            ctx.wizard.state.answers.push(ctx.message.text);
+            const walletAddress = ctx.message.text;
+            try {
+                // check if address is valid
+                if (!web3.utils.isAddress(walletAddress)) {
+                    ctx.reply('Please provide a valid wallet address.');
+                    return;
+                }
+                const balance = await sekoiaTokenContract.methods.balanceOf(walletAddress).call();
+                const balanceInTokens = web3.utils.fromWei(balance, 'ether');
+                if (parseFloat(balanceInTokens) >= 10) {
+                    ctx.wizard.state.answers.push(walletAddress);
+                    ctx.wizard.state.walletAddress = walletAddress;
+                    // random nonce
+                    let nonce = Math.floor(Math.random() * 1000000);
+                    let message = `PitchSEKOIA:${nonce}`;
+                    ctx.wizard.state.message = message;
+                    ctx.wizard.state.balanceInTokens = balanceInTokens;
+                    let text = `${questions[4]} ${walletAddress}\nPlease copy the message below and sign it on https://basescan.org/verifiedSignatures, then provide us the signature here to verify.\n\n${message}`;
+                    let options = Markup.inlineKeyboard([
+                        Markup.button.callback('Back', 'back'),
+                        Markup.button.callback('Abort', 'abort')
+                    ])
+                    options.disable_web_page_preview = true;
+                    ctx.reply(text, options);
+                    return ctx.wizard.next();
+                } else {
+                    ctx.reply(`Insufficient Sekoia balance, minimum 10 required, current balance ${balanceInTokens}. Please try with another wallet.`);
+                }
+            } catch (error) {
+                ctx.reply('Error checking balance. Please try again.');
+            }
         } else {
-            ctx.wizard.state.answers.push('None');
+            ctx.reply('Please provide a valid wallet address.');
         }
-        ctx.reply(questions[4], Markup.inlineKeyboard([
-            Markup.button.callback('Back', 'back'),
-            Markup.button.callback('Skip', 'skip'),
-            Markup.button.callback('Abort', 'abort')
-        ]));
-        return ctx.wizard.next();
+    },
+    async (ctx) => {
+        let signature = ctx.message.text;
+        if (signature) {
+            try {
+                let recoveredAddress = web3.eth.accounts.recover(ctx.wizard.state.message, signature);
+                if (recoveredAddress.toLocaleLowerCase() === ctx.wizard.state.walletAddress.toLocaleLowerCase()) {
+                    ctx.reply(questions[5], Markup.inlineKeyboard([
+                        Markup.button.callback('Back', 'back'),
+                        Markup.button.callback('Skip', 'skip'),
+                        Markup.button.callback('Abort', 'abort')
+                    ]));
+                    return ctx.wizard.next();
+                }
+            } catch (error) {
+                console.log('check signature error', error.message);
+            }
+        }
+        ctx.reply('Signature verification failed. Please provide the correct signature.');
     },
     async (ctx) => {
         if (ctx.message.document && ctx.message.document.file_name.endsWith('.pdf')) {
@@ -196,7 +257,7 @@ const wizardScene = new Scenes.WizardScene(
             ctx.wizard.state.answers.push('None');
         }
 
-        const finalMessage = `New Submission:\n\nTelegram Handle: @${ctx.from.username}\nDeck: ${ctx.wizard.state.answers[0]}\nLinkedIn: ${ctx.wizard.state.answers[1]}\nGithub: ${ctx.wizard.state.answers[2]}\nWallet: ${ctx.wizard.state.answers[3]}\nAdditional Materials: ${ctx.wizard.state.answers[4]}`;
+        const finalMessage = `New Submission:\n\nTelegram Handle: @${ctx.from.username}\nDeck: ${ctx.wizard.state.answers[0]}\nLinkedIn: ${ctx.wizard.state.answers[1]}\nGithub: ${ctx.wizard.state.answers[2]}\nVerified Wallet: ${ctx.wizard.state.answers[3]}\nBalance: ${ctx.wizard.state.balanceInTokens} SEKOIA\nAdditional Materials: ${ctx.wizard.state.answers[4]}`;
         await ctx.telegram.sendMessage(process.env.TARGET_CHAT_ID, finalMessage);
 
         ctx.reply('Thank you! We have received and evaluated your submission. We will review and get back to you shortly with next steps.');
@@ -251,7 +312,7 @@ wizardScene.action('skip', async (ctx) => {
         }
         ctx.reply(questions[nextIndex], Markup.inlineKeyboard(buttons));
     } else {
-        const finalMessage = `New Submission:\n\nTelegram Handle: @${ctx.from.username}\nDeck: ${ctx.wizard.state.answers[0]}\nLinkedIn: ${ctx.wizard.state.answers[1]}\nGithub: ${ctx.wizard.state.answers[2]}\nWallet: ${ctx.wizard.state.answers[3]}\nAdditional Materials: ${ctx.wizard.state.answers[4]}`;
+        const finalMessage = `New Submission:\n\nTelegram Handle: @${ctx.from.username}\nDeck: ${ctx.wizard.state.answers[0]}\nLinkedIn: ${ctx.wizard.state.answers[1]}\nGithub: ${ctx.wizard.state.answers[2]}\nVerified Wallet: ${ctx.wizard.state.answers[3]}\nBalance: ${ctx.wizard.state.balanceInTokens} SEKOIA\nAdditional Materials: ${ctx.wizard.state.answers[4]}`;
         await ctx.telegram.sendMessage(process.env.TARGET_CHAT_ID, finalMessage);
 
         ctx.reply('Thank you! We have received and evaluated your submission. We will review and get back to you shortly with next steps.');
